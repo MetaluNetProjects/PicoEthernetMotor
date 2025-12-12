@@ -1,0 +1,11 @@
+(all commands from main dir)
+init build:
+$ export PICO_SDK_PATH=/path_to/pico-sdk
+$ cmake -B build
+
+build:
+$ cmake --build -B build
+
+flash:
+$ ./bootselBoot
+$ cp build/src/picoethmotor.uf2 /media/USERNAME/RPI-RP2/

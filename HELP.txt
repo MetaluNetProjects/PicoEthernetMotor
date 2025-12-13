@@ -1,11 +1,24 @@
 (all commands from main dir)
+
 init build:
+
 $ export PICO_SDK_PATH=/path_to/pico-sdk
 $ cmake -B build
 
+
+make bootselBoot:
+
+$ gcc -o bootselBoot -I/usr/include/libusb-1.0/ bootselBoot.c -lusb-1.0
+
+
 build:
-$ cmake --build -B build
+
+$ cmake --build build -j4
+
 
 flash:
+
 $ ./bootselBoot
+(wait for pseudo-volume to be mounted)
 $ cp build/src/picoethmotor.uf2 /media/USERNAME/RPI-RP2/
+

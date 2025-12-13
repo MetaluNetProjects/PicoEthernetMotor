@@ -76,7 +76,7 @@ if(NOT DEFINED PORT_DIR)
     message(STATUS "PORT_DIR = ${PORT_DIR}")
 endif()
 
-# Hardware-specific examples in subdirectories:
+# Application subdirectory
 add_subdirectory(src)
 
 # Add libraries in subdirectories

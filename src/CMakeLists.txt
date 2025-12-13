@@ -9,10 +9,8 @@ set(TARGET_FILES
 
 add_executable(${TARGET_NAME} ${TARGET_FILES})
 
-target_include_directories(picoethmotor PUBLIC
+target_include_directories(${TARGET_NAME} PUBLIC
         ${LWIP_PATH}/src/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/tcp_echoserver
-        ${CMAKE_CURRENT_SOURCE_DIR}/tcp_echoclient
         )
 
 # This is required to include lwipopts.h
@@ -21,7 +19,7 @@ target_include_directories(pico_lwip INTERFACE
         )
 
 # force recompile version.cpp each time for updating __TIME__
-add_custom_command(TARGET picoethmotor
+add_custom_command(TARGET ${TARGET_NAME}
         PRE_BUILD
         COMMAND ${CMAKE_COMMAND} -E touch_nocreate ${CMAKE_CURRENT_SOURCE_DIR}/version.cpp
         )

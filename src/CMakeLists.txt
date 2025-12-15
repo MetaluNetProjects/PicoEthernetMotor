@@ -5,6 +5,7 @@ set(TARGET_FILES
     main.cpp
     fraise.c
     version.cpp
+    PID_v1.cpp
     )
 
 add_executable(${TARGET_NAME} ${TARGET_FILES})
@@ -29,6 +30,7 @@ target_link_libraries(${TARGET_NAME} PRIVATE
         hardware_spi
         hardware_dma
         hardware_pwm
+        hardware_adc
         ETHERNET_FILES
         IOLIBRARY_FILES
         LWIP_FILES

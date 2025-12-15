@@ -1,14 +1,25 @@
-// Palantir main
+// PicoEthernetMotor main
 
 #include <string.h>
 #include <stdlib.h>
 
 #include "pico/stdlib.h"
+#include "hardware/adc.h"
 #include "udp_server.hpp"
 #include "wiznet.h"
 #include "fraise.h"
 #include "encoder.hpp"
 #include "motor.hpp"
+#include "ramp.hpp"
+#include "PID_v1.h"
+
+
+const int PID_KP = 370;
+const int PID_KI = 650;
+const int PID_KD = 0.1;
+const int RAMP_ACCEL = 2000;    // steps/s²
+const int RAMP_MAXSPEED = 5400; // steps/s
+const int HOMING_PWM = 6000;    // max 32767 (but don't do that ;-)
 
 // motor on J1: 0=A 1=B 2=PWM 3=
 Motor motor{0, 1, 2};
@@ -23,6 +34,30 @@ const int endswitch_high = 9;
 
 UDPServer udp;
 
+float position;
+float pwm;
+float setPoint;
+
+PID pid(&position, &pwm, &setPoint, PID_KP, PID_KI, PID_KD, P_ON_M, DIRECT);
+Ramp ramp(RAMP_ACCEL, RAMP_MAXSPEED);
+bool ramp_to_pid = true;
+
+bool unlock_settings = false;
+bool unlock_debug = false;
+
+enum class State{init, homing, finishhoming, run, error} state = State::init;
+const char *state_name(State s) {
+	const char* name;
+	switch(s) {
+	case(State::init): name = "init"; break;
+	case(State::homing): name = "homing"; break;
+	case(State::finishhoming): name = "finishhoming"; break;
+	case(State::run): name = "run"; break;
+	case(State::error): name = "error"; break;
+	}
+	return name;
+}
+
 void gpio_callback(uint gpio, uint32_t events) {
 	if(encoder.gpio_handler(gpio, events)) return;
 }
@@ -35,9 +70,8 @@ void setup_end_switches() {
 	gpio_set_dir(endswitch_high, GPIO_IN);
 	gpio_pull_up(endswitch_high);
 
+	// endswitch_low interrupt is not processed, but this enables interrupts for encoder pins:
 	gpio_set_irq_enabled_with_callback(endswitch_low, GPIO_IRQ_EDGE_RISE, true, &gpio_callback);
-	//gpio_set_irq_enabled(pinA, GPIO_IRQ_EDGE_FALL, true);
-	//gpio_set_irq_enabled(pinB, GPIO_IRQ_EDGE_FALL, true);
 }
 
 bool is_endswitch_low() {
@@ -59,10 +93,27 @@ void print_end_switches() {
 		fraise_printf("end_high %d\n", high);
 	}
 }
+
+void setup_motor_current() {
+	adc_init();
+	adc_gpio_init(motor_current_pin);
+}
+
+int get_motor_current_mA(bool update = false) {
+	static float current_raw = 0;
+	static float current_filtered = 0;
+	if(update) {
+		adc_select_input(motor_current_pin - 26);
+		current_raw = adc_read();
+		current_filtered += (current_raw - current_filtered) * 0.05;
+	}
+	// 140 mV per amp
+	return current_filtered * (1000.0 * 3.3 / (4096.0 * 0.140));
+}
+
 #ifdef PICO_DEFAULT_LED_PIN
 #define LED_PIN PICO_DEFAULT_LED_PIN
 #endif
-//#define LED_PIN 25
 
 void set_led(bool l) {
 	//cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, l ? 1 : 0);
@@ -76,22 +127,92 @@ void blink(int ledPeriod) {
 	if(time_reached(nextLed)) {
 		set_led(led = !led);
 		nextLed = make_timeout_time_ms(ledPeriod);
-		//if(do_print_led) fraise_printf("led %d\n", led ? 1 : 0);
 	}
+}
+
+void enableMotorControl(bool enable) {
+	if(enable) {
+		position = setPoint = encoder.get_count();
+		ramp.set(setPoint);
+	}
+	pid.SetMode(enable ? 1 : 0);
+	ramp_to_pid = enable;
 }
 
 void setup() {
 	udp.setup(4343);
 	gpio_set_irq_callback(gpio_callback);
 	setup_end_switches();
+	setup_motor_current();
 	encoder.init();
 	motor.init();
+	pid.SetOutputLimits(-32767.0, 32767.0);
+	pid.SetSampleTime(5);
+	enableMotorControl(false);
+}
+
+void motor_updatepwm() {
+	if(is_endswitch_low() && pwm < 0) pwm = 0;
+	if(is_endswitch_high() && pwm > 0) pwm = 0;
+	motor.goto_pwm_ms(pwm, 20);
+}
+
+void motorcontrol_update() {
+	position = encoder.get_count();
+	if(pid.Compute()) {
+		ramp.compute();
+		if(ramp_to_pid) setPoint = ramp.get_position();
+		motor_updatepwm();
+	}
+	motor.update();
+	motor.reset_watchdog();
+	get_motor_current_mA(true);
+}
+
+void state_error_if_endswitches(bool low, bool high) {
+	if((is_endswitch_low() && low) || (is_endswitch_high() && high)) {
+		state = State::error;
+		enableMotorControl(false);
+		pwm = 0;
+	}
+}
+
+void state_update() {
+	switch(state) {
+	case State::init:
+		break;
+	case State::homing:
+		if(is_endswitch_low()) {
+			encoder.set_count(-1000);
+			enableMotorControl(true);
+			ramp.set_destination(0);
+			state = State::finishhoming;
+		}
+		state_error_if_endswitches(false, true);
+		break;
+	case State::finishhoming:
+		if((!is_endswitch_low()) && encoder.get_count() > -200) {
+			state = State::run;
+		}
+		state_error_if_endswitches(false, true);
+		break;
+	case State::run:
+		state_error_if_endswitches(true, true);
+		break;
+	case State::error:
+		break;
+	}
+	static absolute_time_t nextSendTime = 0;
+	if(time_reached(nextSendTime)) {
+		nextSendTime = make_timeout_time_ms(500);
+		fraise_printf("state %s\n", state_name(state));
+	}
 }
 
 void loop() {
 	blink(250);
-	motor.update();
-	motor.reset_watchdog();
+	state_update();
+	motorcontrol_update();
 	wiznet_update();
 	print_end_switches();
 }
@@ -100,17 +221,59 @@ void fraise_receivebytes(const char* data, uint8_t len) {
 	char command = fraise_get_uint8();
 	motor.reset_watchdog();
 	switch(command) {
-		case 1: {
-				int pwm = fraise_get_int16();
-				int ms = fraise_get_int16();
-				motor.goto_pwm_ms(pwm, ms);
-			}
-			break;
-		case 2:
+		case 1:
 			fraise_printf("l pwm %d\n", motor.get_pwm());
 			break;
-		case 10:
-			fraise_printf("l m %d %f %d %d\n", encoder.get_count(), encoder.speed_process(), gpio_get(8), gpio_get(9));
+		case 2:
+			fraise_printf("l current %d\n", get_motor_current_mA());
+			break;
+		case 3:
+			fraise_printf("l m %d %f\n", encoder.get_count(), encoder.speed_process());
+			break;
+		case 4:
+			fraise_printf("l ramp %f\n", ramp.get_position());
+			break;
+		case 10: // HOMING
+			enableMotorControl(false);
+			state = State::homing;
+			pwm = -1 * (HOMING_PWM);
+			break;
+		case 11: // GOTO
+			ramp.set_destination(fraise_get_int32());
+			break;
+		case 20:
+			unlock_settings = (fraise_get_uint8() > 0);
+			if(!unlock_settings) unlock_debug = false;
+			break;
+	}
+
+	if(unlock_settings) switch(command) {
+		case 100: {
+				pwm = fraise_get_int16();
+				motor_updatepwm();
+				enableMotorControl(false);
+			}
+			break;
+		case 110:
+			pid.SetTunings(fraise_get_int32() / 1000.0, fraise_get_int32() / 1000.0, fraise_get_int32() / 1000.0);
+			break;
+		case 120:
+			ramp.config(fraise_get_int32(), fraise_get_int32());
+			break;
+		case 200:
+			unlock_debug = (fraise_get_uint8() > 0);
+			break;
+	}
+
+	if(unlock_debug) switch(command) {
+		case 210:
+			encoder.set_count(fraise_get_int32());
+			break;
+		case 220:
+			enableMotorControl(fraise_get_uint8() > 0);
+			break;
+		case 230:
+			setPoint = fraise_get_int32();
 			break;
 	}
 }
@@ -147,7 +310,7 @@ bool fraise_putbytes(const char* data, uint8_t len) { // returns true on success
 
 
 int main() {
-    //stdio_init_all();
+    //stdio_init_all(); // done by wiznet_init() after setting CPU clock
     wiznet_init();
     gpio_init(LED_PIN);
     gpio_set_dir(LED_PIN, GPIO_OUT);

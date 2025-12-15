@@ -35,6 +35,12 @@ public:
         gpio_set_irq_enabled(pinB, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
     }
 
+    void set_count(int c) {
+        uint32_t status = save_and_disable_interrupts();
+        count = c;
+        restore_interrupts_from_disabled(status);
+    }
+
     float speed_process()
     {
         uint32_t status = save_and_disable_interrupts();
@@ -45,7 +51,7 @@ public:
         restore_interrupts(status);
         float speed;
         if(!dt) speed = 0;
-        else speed = (200000.0 * dx) / dt;
+        else speed = ((float)1e6 * dx) / dt;
         //return speed;
         speed_lp1 += (speed - speed_lp1) * lp_f;
         speed_lp2 += (speed_lp1 - speed_lp2) * lp_f;

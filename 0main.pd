@@ -1,4 +1,4 @@
-#N canvas 165 30 740 427 12;
+#N canvas 116 31 740 427 12;
 #X declare -path Fraise_abs;
 #X obj 14 208 cnv 20 90 140 empty empty HOMING 20 12 0 14 #e0e0e0 #404040 0;
 #X obj 113 209 cnv 20 300 140 empty empty POSITION 20 12 0 14 #e0e0e0 #404040 0;
@@ -9,7 +9,7 @@
 #X obj 124 297 hsl 170 20 0 33165 0 0 empty empty ramp_destination 5 10 0 12 #fcfcfc #7c7c7c #000000 0 1;
 #X floatatom 300 322 12 0 0 0 - - - 0;
 #X text 178 325 ramp destination;
-#N canvas 393 79 1197 844 debug 1;
+#N canvas 737 144 1197 844 debug 1;
 #X obj 6 8 cnv 20 150 250 empty empty STATS 20 12 0 12 #e0e0e0 #404040 0;
 #X obj 163 8 cnv 20 750 250 empty empty SETTINGS 20 12 0 12 #e0e0e0 #404040 0;
 #X obj 924 9 cnv 20 250 250 empty empty DEBUG\ (don't\ use...) 20 12 0 12 #e0e0e0 #404040 0;
@@ -260,6 +260,9 @@
 #X obj 609 368 nbx 5 18 -1e+37 1e+37 0 0 empty estim-270-time empty 0 -10 0 12 #fcfcfc #000000 #000000 0 256;
 #X text 421 368 Estimated 270° time (sec):;
 #X obj 187 159 bng 20 250 50 0 empty empty empty 0 -10 0 12 #fcfcfc #000000 #000000;
+#X listbox 453 78 29 0 0 0 - - - 0;
+#X obj 456 13 r Fraise-fruit1-rcv;
+#X obj 456 41 route 1 2 3 4;
 #X connect 6 0 13 0;
 #X connect 6 0 7 0;
 #X connect 11 0 27 0;
@@ -269,3 +272,5 @@
 #X connect 19 0 22 0;
 #X connect 19 0 23 0;
 #X connect 22 0 4 0;
+#X connect 29 0 30 0;
+#X connect 30 4 28 0;

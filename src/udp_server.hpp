@@ -25,6 +25,7 @@ private:
     ip_addr_t last_sender_addr;// = nullptr;
     u16_t return_port = 0;
     u16_t alt_return_port = 0;
+    absolute_time_t last_ping_time = 0;
     struct TableDef {
         bool started = false;
         uint8_t *data = nullptr;
@@ -86,6 +87,7 @@ private:
                         retbuf[1] = (uint8_t)SystemId::ping;
                         udp_sendto(server, retp, addr, port);
                         pbuf_free(retp);
+                        last_ping_time = get_absolute_time();
                     }
                     break;
                 }
@@ -190,5 +192,8 @@ public:
         if(table_num >= NUM_TABLES) return;
         tables[table_num].start_callback = start_cb;
         tables[table_num].end_callback = end_cb;
+    }
+    int ms_since_lastping() {
+        return absolute_time_diff_us(last_ping_time, get_absolute_time()) / 1000;
     }
 };

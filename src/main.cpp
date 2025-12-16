@@ -54,6 +54,8 @@ bool ramp_to_pid = true;
 bool unlock_settings = false;
 bool unlock_debug = false;
 
+int blink_ms = 250;
+
 enum class State{init, homing, finishhoming, run, error} state = State::init;
 const char *state_name(State s) {
 	const char* name;
@@ -246,7 +248,7 @@ void state_update() {
 }
 
 void loop() {
-	blink(250);
+	if(udp.ms_since_lastping() < 3500) blink(250);
 	state_update();
 	motorcontrol_update();
 	wiznet_update();

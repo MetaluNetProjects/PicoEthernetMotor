@@ -16,7 +16,7 @@ private:
     int pinA, pinB, pinPwm;
     int pwm = 0; // pwm [-32768, 32767]
     int pwm_target = 0;
-    int full_scale_ms = 50; // 16 second for pwm fullscale
+    int full_scale_ms = 20; // 16 second for pwm fullscale
     int accel = 0;
     int watchdog_ms = 5000;
     mutex_t mutex;

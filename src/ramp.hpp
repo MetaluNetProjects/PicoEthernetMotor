@@ -32,9 +32,12 @@ public:
         speed = 0.0f;
     }
 
-    void config(float _accel, float _maxspeed){
-        accel = _accel;
+    void set_maxspeed(float _maxspeed){
         maxspeed = _maxspeed;
+    }
+
+    void set_accel(float _accel){
+        accel = _accel;
     }
 
     void compute() {
@@ -66,6 +69,9 @@ public:
                 if(speed < 0) speed += dv;
             }
         }
+        if(speed > maxspeed) speed -= dv;
+        else if(speed < -maxspeed) speed += dv;
+        
         position += speed * dt;
     }
 };

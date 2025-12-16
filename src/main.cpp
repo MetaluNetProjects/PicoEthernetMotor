@@ -13,13 +13,22 @@
 #include "ramp.hpp"
 #include "PID_v1.h"
 
-
+// PID settings:
 const int PID_KP = 370;
 const int PID_KI = 650;
 const int PID_KD = 0.1;
+
+// RAMP settings:
 const int RAMP_ACCEL = 2000;    // steps/s²
 const int RAMP_MAXSPEED = 5400; // steps/s
 const int HOMING_PWM = 6000;    // max 32767 (but don't do that ;-)
+
+// CURRENT SECURITY
+const int OVERCURRENT_MA = 800;
+const int OVERCURRENT_MS = 2000;
+
+// LOWSWITCH MARGIN
+const int LOWSWITCH_MARGIN = 2000;
 
 // motor on J1: 0=A 1=B 2=PWM 3=
 Motor motor{0, 1, 2};
@@ -154,7 +163,27 @@ void setup() {
 void motor_updatepwm() {
 	if(is_endswitch_low() && pwm < 0) pwm = 0;
 	if(is_endswitch_high() && pwm > 0) pwm = 0;
-	motor.goto_pwm_ms(pwm, 20);
+	motor.goto_pwm_ms(pwm, 10);
+}
+
+// stop motor and set mode to error
+void state_set_error() {
+	state = State::error;
+	enableMotorControl(false);
+	pwm = 0;
+}
+
+void motor_check_current() {
+	static absolute_time_t alert_time = at_the_end_of_time;
+	if(get_motor_current_mA() > OVERCURRENT_MA) {
+		if(alert_time == at_the_end_of_time) {
+			alert_time = make_timeout_time_ms(OVERCURRENT_MS);
+		} else if(time_reached(alert_time)) {
+			state_set_error();
+			fraise_printf("e overcurrent error!\n");
+			alert_time = at_the_end_of_time;
+		}
+	} else alert_time = at_the_end_of_time;
 }
 
 void motorcontrol_update() {
@@ -167,14 +196,18 @@ void motorcontrol_update() {
 	motor.update();
 	motor.reset_watchdog();
 	get_motor_current_mA(true);
+	motor_check_current();
 }
 
-void state_error_if_endswitches(bool low, bool high) {
+// if endswitch low and/or high, set mode to error and return false.
+// else, return true ('good');
+bool check_endswitches(bool low, bool high) {
 	if((is_endswitch_low() && low) || (is_endswitch_high() && high)) {
-		state = State::error;
-		enableMotorControl(false);
-		pwm = 0;
+		state_set_error();
+		fraise_printf("e endswitch error!\n");
+		return false;
 	}
+	return true;
 }
 
 void state_update() {
@@ -183,25 +216,28 @@ void state_update() {
 		break;
 	case State::homing:
 		if(is_endswitch_low()) {
-			encoder.set_count(-1000);
+			encoder.set_count(-LOWSWITCH_MARGIN);
 			enableMotorControl(true);
 			ramp.set_destination(0);
 			state = State::finishhoming;
 		}
-		state_error_if_endswitches(false, true);
+		check_endswitches(false, true);
 		break;
 	case State::finishhoming:
-		if((!is_endswitch_low()) && encoder.get_count() > -200) {
-			state = State::run;
+		if(encoder.get_count() > -100) {
+			if(check_endswitches(true, true)) {
+				state = State::run;
+			}
 		}
-		state_error_if_endswitches(false, true);
+		check_endswitches(false, true);
 		break;
 	case State::run:
-		state_error_if_endswitches(true, true);
+		check_endswitches(true, true);
 		break;
 	case State::error:
 		break;
 	}
+
 	static absolute_time_t nextSendTime = 0;
 	if(time_reached(nextSendTime)) {
 		nextSendTime = make_timeout_time_ms(500);
@@ -241,6 +277,9 @@ void fraise_receivebytes(const char* data, uint8_t len) {
 		case 11: // GOTO
 			ramp.set_destination(fraise_get_int32());
 			break;
+		case 12: // SPEED
+			ramp.set_maxspeed(fraise_get_int32());
+			break;
 		case 20:
 			unlock_settings = (fraise_get_uint8() > 0);
 			if(!unlock_settings) unlock_debug = false;
@@ -258,7 +297,7 @@ void fraise_receivebytes(const char* data, uint8_t len) {
 			pid.SetTunings(fraise_get_int32() / 1000.0, fraise_get_int32() / 1000.0, fraise_get_int32() / 1000.0);
 			break;
 		case 120:
-			ramp.config(fraise_get_int32(), fraise_get_int32());
+			ramp.set_accel(fraise_get_int32());
 			break;
 		case 200:
 			unlock_debug = (fraise_get_uint8() > 0);
